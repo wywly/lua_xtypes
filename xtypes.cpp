@@ -69,11 +69,23 @@ template<class TInt>
 struct IntWrapperRegistry {
     typedef IntWrapper<TInt> Wrapper;
 
+    static Wrapper* __push_new_value(lua_State* L, TInt value) {
+        Wrapper* w = new Wrapper( value );
+        luaW_push<Wrapper>(L, w);
+        luaW_hold<>(L, w);
+        return w;
+    }
+    static Wrapper* __push_new_value(lua_State* L, const Wrapper& value) {
+        Wrapper* w = new Wrapper( value );
+        luaW_push<Wrapper>(L, w);
+        luaW_hold<>(L, w);
+        return w;
+    }
+
     static Wrapper* __from_stack(lua_State* L, int index) {
         switch (lua_type(L, index)) {
             case LUA_TNUMBER: {
-                TInt v = luaU_check<TInt>(L, index);
-                return new Wrapper(v);
+                return __push_new_value(L, luaU_check<TInt>(L, index) );
             }
             case LUA_TSTRING: {
                 size_t len = 0;
@@ -88,7 +100,7 @@ struct IntWrapperRegistry {
                 for (size_t i = 0; i < len; i++) {
                     n64 |= (uint64_t)str[i] << (i*8);
                 }
-                return new Wrapper( static_cast<TInt>(n64) );
+                return __push_new_value(L, static_cast<TInt>(n64) );
             }
             default:
                 return luaW_check<Wrapper>(L, index);
@@ -112,8 +124,10 @@ struct IntWrapperRegistry {
     static int __##functor(lua_State* L) {\
         Wrapper* l = __from_stack(L, 1);\
         Wrapper* r = __from_stack(L, 2);\
-        try { Wrapper* w = new Wrapper( functor(*l, *r) ); luaW_push<Wrapper>(L, w); return 1; }\
-        catch(std::exception& e) { return luaL_error(L, "Exception: '%s'", e.what()); }\
+        const char* err = NULL;\
+        try { __push_new_value(L, functor(*l, *r)); return 1; }\
+        catch(std::exception& e) { err = lua_pushfstring(L, e.what()); }\
+        if (err) { return luaL_error(L, "%s", err); }\
     }
 
 #define binary_bool(functor) \
@@ -127,7 +141,7 @@ struct IntWrapperRegistry {
 #define unary(functor) \
     static int __##functor(lua_State* L) {\
         Wrapper* w = __from_stack(L, 1);\
-        luaW_push<Wrapper>(L, new Wrapper( functor(*w) ));\
+        __push_new_value(L, functor(*w) );\
         return 1;\
     }
 
